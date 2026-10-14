@@ -1,153 +1,86 @@
-# Sistema Distribuido de Relogio Mundial (TCP/UDP)
+# Relógio Mundial — sockets TCP e UDP
 
-## Resumo do Projeto
+**Três implementações da mesma consulta para comparar protocolos e atendimento concorrente.**
 
-Atividade pratica de **Sistemas Distribuidos** que explora a comunicacao entre processos utilizando **Sockets em Java**. O projeto implementa tres versoes de um sistema cliente-servidor de relogio mundial, demonstrando as diferencas fundamentais entre os protocolos **UDP** e **TCP**, alem do modelo de servidor concorrente com **Multithread**.
+Projeto acadêmico de Sistemas Distribuídos em Java. O cliente informa um identificador de fuso, como `America/Sao_Paulo`, e recebe a data e a hora calculadas pelo servidor com `ZonedDateTime`.
 
-O cliente envia o identificador de um fuso horario (ex: `America/Sao_Paulo`) e o servidor responde com a data/hora atual naquela regiao, utilizando a API `java.time.ZonedDateTime`.
+## As três versões
 
----
+| Pasta | Transporte | Modelo de atendimento |
+| --- | --- | --- |
+| [udp-clock](udp-clock/) | UDP | Requisição e resposta por datagramas. |
+| [tcp-clock-simple](tcp-clock-simple/) | TCP | Atendimento sequencial de conexões. |
+| [tcp-clock-multithread](tcp-clock-multithread/) | TCP | Uma thread `ClientHandler` para cada conexão aceita. |
 
-## Tecnologias
+O objetivo é observar a comunicação entre processos e a diferença entre aceitar uma conexão e processar uma solicitação. Não é um serviço de sincronização de relógios: a referência temporal é o relógio da máquina que executa o servidor.
 
-- **Java 17+** (JDK)
-- `java.net` (DatagramSocket, ServerSocket, Socket)
-- `java.time` (ZoneId, ZonedDateTime, DateTimeFormatter)
-- `java.io` (BufferedReader, PrintWriter, InputStreamReader, OutputStreamWriter)
+## Executar
 
----
-
-## Estrutura do Repositorio
-
-```
-├── udp-clock/                        # Versao 1: UDP
-│   ├── ClockServerUDP.java
-│   └── ClockClientUDP.java
-├── tcp-clock-simple/                 # Versao 2: TCP Single-Thread
-│   ├── ClockServerTCP.java
-│   └── ClockClientTCP.java
-├── tcp-clock-multithread/            # Versao 3: TCP Multithread
-│   ├── ClockServerTCPMultithread.java
-│   ├── ClientHandler.java
-│   └── ClockClientTCP.java
-└── README.md
-```
-
----
-
-## Instrucoes de Execucao
-
-### Pre-requisitos
-
-- Java Development Kit (JDK) 17 ou superior instalado
-- Terminal/Prompt de Comando
-
-### Versao 1: UDP (`udp-clock/`)
+Requisito: JDK 17 ou superior, conforme o ambiente descrito no projeto. Não há instalação de framework ou banco de dados.
 
 ```bash
-cd udp-clock/
-javac -encoding UTF-8 *.java
-
-# Terminal 1 - Servidor:
-java ClockServerUDP
-
-# Terminal 2 - Cliente:
-java ClockClientUDP
+git clone https://github.com/dlr-1337/relogio-mundial-sockets.git
+cd relogio-mundial-sockets
 ```
 
-### Versao 2: TCP Single-Thread (`tcp-clock-simple/`)
+Escolha uma pasta e compile os arquivos dela:
 
 ```bash
-cd tcp-clock-simple/
+cd udp-clock
 javac -encoding UTF-8 *.java
-
-# Terminal 1 - Servidor:
-java ClockServerTCP
-
-# Terminal 2 - Cliente:
-java ClockClientTCP
 ```
 
-### Versao 3: TCP Multithread (`tcp-clock-multithread/`)
+Abra dois terminais **na mesma pasta da versão escolhida** e execute o servidor antes do cliente:
 
-```bash
-cd tcp-clock-multithread/
-javac -encoding UTF-8 *.java
+| Versão | Terminal do servidor | Terminal do cliente |
+| --- | --- | --- |
+| UDP | `java ClockServerUDP` | `java ClockClientUDP` |
+| TCP sequencial | `java ClockServerTCP` | `java ClockClientTCP` |
+| TCP concorrente | `java ClockServerTCPMultithread` | `java ClockClientTCP` |
 
-# Terminal 1 - Servidor:
-java ClockServerTCPMultithread
+Nas versões TCP, compile primeiro com `javac -encoding UTF-8 *.java` dentro de `tcp-clock-simple` ou `tcp-clock-multithread`. Os clientes TCP de mesmo nome pertencem a pastas diferentes; não misture suas classes.
 
-# Terminal 2, 3, 4... - Clientes (podem conectar simultaneamente):
-java ClockClientTCP
+Para explorar concorrência, abra vários clientes da versão multithread. Seu servidor escuta na porta **9878** e registra o nome da thread atribuída a cada conexão.
+
+## Exemplo de consulta
+
+Quando o cliente solicitar o fuso, informe um identificador reconhecido pelo Java:
+
+```text
+America/Sao_Paulo
+Europe/London
+Asia/Tokyo
+UTC
 ```
 
-### Exemplos de Fusos Horarios Validos
+O horário varia conforme o instante da consulta. Esses valores são entradas de exemplo, não saídas fixas esperadas.
 
-| Fuso Horario         | Regiao                  |
-|----------------------|-------------------------|
-| `America/Sao_Paulo`  | Brasil (Brasilia)       |
-| `Europe/London`      | Reino Unido             |
-| `Asia/Tokyo`         | Japao                   |
-| `US/Eastern`         | EUA (Costa Leste)       |
-| `Europe/Paris`       | Franca                  |
-| `Australia/Sydney`   | Australia               |
-| `UTC`                | Tempo Universal         |
+## Como funciona
 
----
-
-## Analise Tecnica: TCP Single-Thread vs. TCP Multithread
-
-### Versao 2 - TCP Single-Thread (Sequencial)
-
-```
-Cliente A ──connect──> Servidor ──process──> Resposta A
-                         |
-Cliente B ──connect──> [FILA DO SO - aguarda]
-                         |
-              (Somente apos Cliente A ser atendido)
-                         |
-Cliente B ────────────> Servidor ──process──> Resposta B
+```mermaid
+sequenceDiagram
+    participant C as Cliente
+    participant S as Servidor
+    participant H as Handler TCP concorrente
+    C->>S: Abre conexão
+    S->>H: Entrega o socket a uma nova thread
+    C->>H: Identificador do fuso
+    H->>H: Calcula a data e hora
+    H-->>C: Resposta
+    Note over S: O loop pode aceitar outras conexões
 ```
 
-**Comportamento:** O servidor utiliza apenas a thread principal. Ao receber uma conexao via `accept()`, ele le a requisicao, processa e responde **antes** de voltar a aceitar novas conexoes. Enquanto um cliente e atendido, todos os outros ficam na **fila de espera do Sistema Operacional** (backlog, padrao ~50 conexoes).
+Na versão sequencial, o processamento acontece antes de voltar ao `accept()`. Na concorrente, a leitura e a resposta são delegadas ao handler, enquanto o loop principal continua aceitando conexões.
 
-**Limitacao:** Se o processamento de um cliente for demorado (ex: operacao de I/O lenta), **todos os demais clientes ficam bloqueados**, mesmo que suas requisicoes sejam simples e rapidas.
+**Concorrência tem custo:** uma thread por conexão não implica escalabilidade ilimitada nem desempenho sempre superior. Há consumo de memória, escalonamento e limites do sistema operacional. Latência e capacidade exigem medição; este repositório demonstra os modelos, não apresenta um benchmark comparativo.
 
-### Versao 3 - TCP Multithread (Concorrente)
+## Organização e exploração
 
-```
-Cliente A ──connect──> Servidor ──accept()──> Thread "Cliente-1" ──process──> Resposta A
-                         |
-Cliente B ──connect──> Servidor ──accept()──> Thread "Cliente-2" ──process──> Resposta B
-                         |
-Cliente C ──connect──> Servidor ──accept()──> Thread "Cliente-3" ──process──> Resposta C
-                         |
-              (Main thread NUNCA processa, apenas delega)
-```
+- `ClockServer*`: inicialização do socket e atendimento ou delegação.
+- `ClockClient*`: entrada do usuário e troca de mensagens.
+- `ClientHandler`: processamento da conexão na versão concorrente.
+- `java.net`, `java.io` e `java.time`: rede, entrada/saída e cálculo temporal.
 
-**Comportamento:** Ao receber um `accept()`, o servidor **imediatamente** cria uma nova Thread (`ClientHandler`) para processar aquela requisicao e retorna ao loop de `accept()`. A thread principal **nunca bloqueia** no processamento — ela apenas aceita conexoes e delega.
+Para a demonstração, utilize a própria máquina ou uma rede de laboratório autorizada. Pare os servidores com `Ctrl+C` ao terminar e confira host e porta no código antes de usar computadores diferentes.
 
-**Vantagem:** Multiplos clientes sao atendidos **simultaneamente**. Um cliente lento nao afeta os demais, pois cada um executa em sua propria thread.
-
-### Comparacao Direta
-
-| Aspecto              | Single-Thread (V2)            | Multithread (V3)                    |
-|----------------------|-------------------------------|-------------------------------------|
-| **Concorrencia**     | 1 cliente por vez             | N clientes simultaneos              |
-| **Thread principal** | Aceita, processa, responde    | Apenas aceita e delega              |
-| **Bloqueio**         | Cliente lento bloqueia todos  | Cliente lento bloqueia so sua thread|
-| **Escalabilidade**   | Baixa                         | Alta (limitada por threads do SO)   |
-| **Complexidade**     | Simples (1 arquivo)           | Moderada (classe Runnable separada) |
-| **Isolamento**       | Erro pode afetar o loop       | Erro isolado na thread do cliente   |
-
-### Conclusao
-
-A versao **Multithread** e estritamente superior em cenarios com multiplos clientes simultaneos. Mesmo para operacoes rapidas como consulta de horario, a arquitetura concorrente elimina a **serializacao artificial** imposta pelo modelo single-thread, resultando em **menor latencia** e **maior throughput** sob carga.
-
----
-
-## Autor
-
-- **Otavio**
-- Disciplina: Sistemas Distribuidos
-- Data: Março de 2026
+**Autor:** Otávio · **Disciplina:** Sistemas Distribuídos · **Atividade:** março de 2026.
